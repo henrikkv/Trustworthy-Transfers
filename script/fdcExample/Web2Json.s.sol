@@ -74,7 +74,7 @@ contract PrepareAttestationRequest is Script {
             "https://api.transferwise.com/v1/transfers/",
             transferId
         );
-        string memory headers = string.concat(
+        string memory requestHeaders = string.concat(
             '{\\"Content-Type\\":\\"application/json\\",\\"Authorization\\":\\"Bearer ',
             apiKey,
             '\\"}'
@@ -90,7 +90,7 @@ contract PrepareAttestationRequest is Script {
         string memory requestBody = prepareRequestBody(
             apiUrl,
             httpMethod,
-            headers,
+            requestHeaders,
             queryParams,
             body,
             postProcessJq,
