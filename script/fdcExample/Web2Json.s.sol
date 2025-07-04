@@ -8,30 +8,29 @@ import {Strings} from "@openzeppelin-contracts/utils/Strings.sol";
 import {Base as StringsBase} from "src/utils/fdcStrings/Base.sol";
 import {Base} from "./Base.s.sol";
 import {IWeb2Json} from "flare-periphery/src/coston2/IWeb2Json.sol";
-import {StarWarsCharacterList, IStarWarsCharacterList} from "src/fdcExample/Web2Json.sol";
+import {WiseTransferList, IWiseTransferList} from "src/fdcExample/Web2Json.sol";
 
 // Configuration constants
 string constant attestationTypeName = "Web2Json";
 string constant dirPath = "data/";
 
+// Required environment variables:
+// - WISE_TRANSFER_ID: The ID of the transfer to query
+// - WISE_API_KEY: Your Wise API key
+
 // Run with command
-//      forge script script/fdcExample/Web2Json.s.sol:PrepareAttestationRequest --rpc-url $COSTON2_RPC_URL --ffi
+//      WISE_TRANSFER_ID=your-transfer-id WISE_API_KEY=your-api-key forge script script/fdcExample/Web2Json.s.sol:PrepareAttestationRequest --rpc-url $COSTON2_RPC_URL --ffi
 
 contract PrepareAttestationRequest is Script {
     using Surl for *;
 
-    // Setting request data
-    // string public apiUrl = "https://swapi.dev/api/people/3/";
-    string public apiUrl = "https://swapi.info/api/people/3";
     string public httpMethod = "GET";
-    // Defaults to "Content-Type": "application/json"
-    string public headers = '{\\"Content-Type\\":\\"text/plain\\"}';
     string public queryParams = "{}";
     string public body = "{}";
     string public postProcessJq =
-        '{name: .name, height: .height, mass: .mass, numberOfFilms: .films | length, uid: (.url | split(\\"/\\") | .[-1] | tonumber)}';
+        '{id: .id, targetAccount: .targetAccount, status: .status, userMessage: .reference}';
     string public abiSignature =
-        '{\\"components\\": [{\\"internalType\\": \\"string\\", \\"name\\": \\"name\\", \\"type\\": \\"string\\"},{\\"internalType\\": \\"uint256\\", \\"name\\": \\"height\\", \\"type\\": \\"uint256\\"},{\\"internalType\\": \\"uint256\\", \\"name\\": \\"mass\\", \\"type\\": \\"uint256\\"},{\\"internalType\\": \\"uint256\\", \\"name\\": \\"numberOfFilms\\", \\"type\\": \\"uint256\\"},{\\"internalType\\": \\"uint256\\", \\"name\\": \\"uid\\", \\"type\\": \\"uint256\\"}],\\"name\\": \\"task\\",\\"type\\": \\"tuple\\"}';
+        '{\\"components\\": [{\\"internalType\\": \\"uint256\\", \\"name\\": \\"id\\", \\"type\\": \\"uint256\\"},{\\"internalType\\": \\"uint256\\", \\"name\\": \\"targetAccount\\", \\"type\\": \\"uint256\\"},{\\"internalType\\": \\"string\\", \\"name\\": \\"status\\", \\"type\\": \\"string\\"},{\\"internalType\\": \\"address\\", \\"name\\": \\"userMessage\\", \\"type\\": \\"address\\"}],\\"name\\": \\"task\\",\\"type\\": \\"tuple\\"}';
 
     string public sourceName = "PublicWeb2";
 
@@ -65,6 +64,24 @@ contract PrepareAttestationRequest is Script {
     }
 
     function run() external {
+        string memory transferId = vm.envString("WISE_TRANSFER_ID");
+        string memory apiKey = vm.envString("WISE_API_KEY");
+        
+        console.log("Using transfer ID: %s", transferId);
+        console.log("API key configured: %s characters", Strings.toString(bytes(apiKey).length));
+        
+        string memory apiUrl = string.concat(
+            "https://api.transferwise.com/v1/transfers/",
+            transferId
+        );
+        string memory headers = string.concat(
+            '{\\"Content-Type\\":\\"application/json\\",\\"Authorization\\":\\"Bearer ',
+            apiKey,
+            '\\"}'
+        );
+        
+        console.log("API URL: %s", apiUrl);
+        
         // Preparing request data
         string memory attestationType = Base.toUtf8HexString(
             attestationTypeName
@@ -232,8 +249,8 @@ contract DeployContract is Script {
         uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
         vm.startBroadcast(deployerPrivateKey);
 
-        StarWarsCharacterList characterList = new StarWarsCharacterList();
-        address _address = address(characterList);
+        WiseTransferList transferList = new WiseTransferList();
+        address _address = address(transferList);
 
         vm.stopBroadcast();
 
@@ -264,8 +281,8 @@ contract InteractWithContract is Script {
         );
         uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
         vm.startBroadcast(deployerPrivateKey);
-        IStarWarsCharacterList characterList = IStarWarsCharacterList(_address);
-        characterList.addCharacter(proof);
+        IWiseTransferList transferList = IWiseTransferList(_address);
+        transferList.addTransfer(proof);
         vm.stopBroadcast();
     }
 }

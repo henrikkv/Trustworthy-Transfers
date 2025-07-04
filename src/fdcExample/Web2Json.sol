@@ -8,32 +8,31 @@ import {IFdcVerification} from "flare-periphery/src/coston2/IFdcVerification.sol
 import {FdcStrings} from "src/utils/fdcStrings/Payment.sol";
 import {IWeb2Json} from "flare-periphery/src/coston2/IWeb2Json.sol";
 
-struct StarWarsCharacter {
-    string name;
-    uint256 numberOfMovies;
-    uint256 apiUid;
-    uint256 bmi;
+struct WiseTransfer {
+    uint256 id;
+    uint256 targetAccount;
+    bool status;
+    address userMessage;
 }
 
 struct DataTransportObject {
-    string name;
-    uint256 height;
-    uint256 mass;
-    uint256 numberOfMovies;
-    uint256 apiUid;
+    uint256 id;
+    uint256 targetAccount;
+    string status;
+    address userMessage;
 }
 
-interface IStarWarsCharacterList {
-    function addCharacter(IWeb2Json.Proof calldata data) external;
-    function getAllCharacters()
+interface IWiseTransferList {
+    function addTransfer(IWeb2Json.Proof calldata data) external;
+    function getAllTransfers()
         external
         view
-        returns (StarWarsCharacter[] memory);
+        returns (WiseTransfer[] memory);
 }
 
-contract StarWarsCharacterList {
-    mapping(uint256 => StarWarsCharacter) public characters;
-    uint256[] public characterIds;
+contract WiseTransferList {
+    mapping(uint256 => WiseTransfer) public transfers;
+    uint256[] public transferIds;
 
     function isJsonApiProofValid(
         IWeb2Json.Proof calldata _proof
@@ -42,7 +41,7 @@ contract StarWarsCharacterList {
         return ContractRegistry.getFdcVerification().verifyJsonApi(_proof);
     }
 
-    function addCharacter(IWeb2Json.Proof calldata data) public {
+    function addTransfer(IWeb2Json.Proof calldata data) public {
         require(isJsonApiProofValid(data), "Invalid proof");
 
         DataTransportObject memory dto = abi.decode(
@@ -50,29 +49,29 @@ contract StarWarsCharacterList {
             (DataTransportObject)
         );
 
-        require(characters[dto.apiUid].apiUid == 0, "Character already exists");
+        require(transfers[dto.id].id == 0, "Transfer already exists");
 
-        StarWarsCharacter memory character = StarWarsCharacter({
-            name: dto.name,
-            numberOfMovies: dto.numberOfMovies,
-            apiUid: dto.apiUid,
-            bmi: (dto.mass * 100 * 100) / (dto.height * dto.height)
+        WiseTransfer memory transfer = WiseTransfer({
+            id: dto.id,
+            targetAccount: dto.targetAccount,
+            status: keccak256(abi.encodePacked(dto.status)) == keccak256(abi.encodePacked("outgoing_payment_sent")),
+            userMessage: dto.userMessage
         });
 
-        characters[dto.apiUid] = character;
-        characterIds.push(dto.apiUid);
+        transfers[dto.id] = transfer;
+        transferIds.push(dto.id);
     }
 
-    function getAllCharacters()
+    function getAllTransfers()
         public
         view
-        returns (StarWarsCharacter[] memory)
+        returns (WiseTransfer[] memory)
     {
-        StarWarsCharacter[] memory result = new StarWarsCharacter[](
-            characterIds.length
+        WiseTransfer[] memory result = new WiseTransfer[](
+            transferIds.length
         );
-        for (uint256 i = 0; i < characterIds.length; i++) {
-            result[i] = characters[characterIds[i]];
+        for (uint256 i = 0; i < transferIds.length; i++) {
+            result[i] = transfers[transferIds[i]];
         }
         return result;
     }
