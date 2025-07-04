@@ -13,6 +13,8 @@ struct WiseTransfer {
     uint256 targetAccount;
     bool status;
     address userMessage;
+    uint256 targetValue;
+    string targetCurrency;
 }
 
 struct DataTransportObject {
@@ -20,6 +22,8 @@ struct DataTransportObject {
     uint256 targetAccount;
     string status;
     address userMessage;
+    uint256 targetValue;
+    string targetCurrency;
 }
 
 interface IWiseTransferList {
@@ -55,7 +59,9 @@ contract WiseTransferList {
             id: dto.id,
             targetAccount: dto.targetAccount,
             status: keccak256(abi.encodePacked(dto.status)) == keccak256(abi.encodePacked("outgoing_payment_sent")),
-            userMessage: dto.userMessage
+            userMessage: dto.userMessage,
+            targetValue: dto.targetValue,
+            targetCurrency: dto.targetCurrency
         });
 
         transfers[dto.id] = transfer;

@@ -28,9 +28,9 @@ contract PrepareAttestationRequest is Script {
     string public queryParams = "{}";
     string public body = "{}";
     string public postProcessJq =
-        '{id: .id, targetAccount: .targetAccount, status: .status, userMessage: .reference}';
+        '{id: .id, targetAccount: .targetAccount, status: .status, userMessage: .reference, targetValue: (.targetValue * 100 | floor), targetCurrency: .targetCurrency}';
     string public abiSignature =
-        '{\\"components\\": [{\\"internalType\\": \\"uint256\\", \\"name\\": \\"id\\", \\"type\\": \\"uint256\\"},{\\"internalType\\": \\"uint256\\", \\"name\\": \\"targetAccount\\", \\"type\\": \\"uint256\\"},{\\"internalType\\": \\"string\\", \\"name\\": \\"status\\", \\"type\\": \\"string\\"},{\\"internalType\\": \\"address\\", \\"name\\": \\"userMessage\\", \\"type\\": \\"address\\"}],\\"name\\": \\"task\\",\\"type\\": \\"tuple\\"}';
+        '{\\"components\\": [{\\"internalType\\": \\"uint256\\", \\"name\\": \\"id\\", \\"type\\": \\"uint256\\"},{\\"internalType\\": \\"uint256\\", \\"name\\": \\"targetAccount\\", \\"type\\": \\"uint256\\"},{\\"internalType\\": \\"string\\", \\"name\\": \\"status\\", \\"type\\": \\"string\\"},{\\"internalType\\": \\"address\\", \\"name\\": \\"userMessage\\", \\"type\\": \\"address\\"},{\\"internalType\\": \\"uint256\\", \\"name\\": \\"targetValue\\", \\"type\\": \\"uint256\\"},{\\"internalType\\": \\"string\\", \\"name\\": \\"targetCurrency\\", \\"type\\": \\"string\\"}],\\"name\\": \\"task\\",\\"type\\": \\"tuple\\"}';
 
     string public sourceName = "PublicWeb2";
 
