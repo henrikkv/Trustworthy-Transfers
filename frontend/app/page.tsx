@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { ethers } from "ethers"
+import Web3 from "web3"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -10,6 +10,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Loader2, Wallet, CheckCircle, AlertCircle } from "lucide-react"
 import { prepareWiseAttestationRequest } from "@/lib/fdc-utils"
 import { submitWiseAttestationRequest } from "@/lib/fdc-contracts"
+import { retrieveWiseAttestationData } from "@/lib/fdc-data-retrieval"
 import { FDC_CONFIG, validateFDCConfig } from "@/lib/config"
 
 interface TransactionRequest {
@@ -28,8 +29,7 @@ interface TransactionResult {
 export default function TrustworthyTransfersApp() {
   const [wallet, setWallet] = useState<{
     address: string
-    provider: ethers.BrowserProvider
-    signer: ethers.JsonRpcSigner
+    web3: Web3
   } | null>(null)
   const [isConnecting, setIsConnecting] = useState(false)
   const [apiKey, setApiKey] = useState("1fd8008a-fa07-4c6f-be8a-16b54a2e7482")
@@ -39,6 +39,7 @@ export default function TrustworthyTransfersApp() {
   const [error, setError] = useState<string | null>(null)
   const [currentStep, setCurrentStep] = useState<'prepare' | 'submit' | 'retrieve' | 'complete'>('prepare')
   const [abiEncodedRequest, setAbiEncodedRequest] = useState<string | null>(null)
+  const [roundId, setRoundId] = useState<number | null>(null)
 
   const { isValid: isFDCConfigValid, missingVars } = validateFDCConfig()
 
@@ -52,17 +53,17 @@ export default function TrustworthyTransfersApp() {
     setError(null)
 
     try {
-      const provider = new ethers.BrowserProvider(window.ethereum)
-      await provider.send("eth_requestAccounts", [])
+      const web3 = new Web3(window.ethereum)
+      await window.ethereum.request({ method: 'eth_requestAccounts' })
 
-      const signer = await provider.getSigner()
-      const address = await signer.getAddress()
-      const network = await provider.getNetwork()
+      const accounts = await web3.eth.getAccounts()
+      const address = accounts[0]
+      const chainId = await web3.eth.getChainId()
       
       console.log("Wallet connected successfully:", address)
-      console.log("Connected to network:", network.chainId.toString(), network.name)
+      console.log("Connected to network:", chainId)
       
-      setWallet({ address, provider, signer })
+      setWallet({ address, web3 })
     } catch (err: any) {
       console.error("Wallet connection error:", err)
       setError(err.message || "Failed to connect wallet")
@@ -77,6 +78,7 @@ export default function TrustworthyTransfersApp() {
     setError(null)
     setCurrentStep('prepare')
     setAbiEncodedRequest(null)
+    setRoundId(null)
   }
 
   const submitTransaction = async () => {
@@ -87,15 +89,14 @@ export default function TrustworthyTransfersApp() {
     setError(null)
 
     try {
-      const network = await wallet.provider.getNetwork()
-      const chainId = Number(network.chainId)
+      const chainId = await wallet.web3.eth.getChainId()
       
       // Check if we're on Coston2 testnet
-      if (chainId !== 114) {
+      if (Number(chainId) !== 114) {
         throw new Error(`Please switch to Coston2 testnet (Chain ID: 114). Current network: ${chainId}`)
       }
 
-      console.log("Network info:", { chainId, name: network.name })
+      console.log("Network info:", { chainId })
 
       if (currentStep === 'prepare') {
         // Step 1: Prepare attestation request
@@ -145,12 +146,13 @@ export default function TrustworthyTransfersApp() {
         
         const submissionResult = await submitWiseAttestationRequest(
           abiEncodedRequest,
-          wallet.provider,
-          wallet.signer
+          wallet.web3,
+          wallet.address
         )
 
         console.log("Attestation request submitted successfully:", submissionResult)
         
+        setRoundId(submissionResult.roundId)
         setCurrentStep('retrieve')
         
         setResult({
@@ -170,6 +172,39 @@ export default function TrustworthyTransfersApp() {
         })
 
         console.log("=== Ready for Step 3: Retrieve data and proof ===")
+        
+      } else if (currentStep === 'retrieve') {
+        // Step 3: Retrieve data and proof
+        if (!abiEncodedRequest || !roundId) {
+          throw new Error("Missing required data for retrieval")
+        }
+
+        console.log("=== Step 3: Retrieving data and proof ===")
+        
+        const proofData = await retrieveWiseAttestationData(
+          abiEncodedRequest,
+          roundId,
+          wallet.web3
+        )
+
+        console.log("Data and proof retrieved successfully:", proofData)
+        
+        setCurrentStep('complete')
+        
+        setResult({
+          success: true,
+          step: 'completed',
+          data: {
+            transferId,
+            timestamp: new Date().toISOString(),
+            abiEncodedRequest,
+            roundId,
+            proof: proofData,
+            stepDescription: "Data and proof retrieved successfully"
+          }
+        })
+
+        console.log("=== FDC process completed ===")
         
       } else {
         throw new Error("Invalid step")
@@ -198,35 +233,34 @@ export default function TrustworthyTransfersApp() {
 
         {/* Configuration Warning */}
         {!isFDCConfigValid && (
-          <Alert variant="destructive">
-            <AlertCircle className="h-4 w-4" />
+          <Alert className="border-amber-200 bg-amber-50">
+            <AlertCircle className="h-4 w-4 text-amber-600" />
             <AlertDescription>
-              <strong>Configuration Required:</strong> The following environment variables need to be set up:
-              <ul className="mt-2 ml-4 list-disc">
-                {missingVars.map(varName => (
-                  <li key={varName} className="text-sm">{varName}</li>
-                ))}
-              </ul>
-              <p className="mt-2 text-sm">
-                Please create a <code>.env.local</code> file in the frontend directory. 
-                See <code>env-setup.md</code> for quick setup instructions.
-              </p>
+              <strong>Configuration Issue:</strong> Missing environment variables: {missingVars.join(', ')}
+              <br />
+              Please set these in your .env.local file for the application to work properly.
             </AlertDescription>
           </Alert>
         )}
 
-        {/* Wallet Connection */}
+        {/* Connection Status */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Wallet className="h-5 w-5" />
               Wallet Connection
             </CardTitle>
-            <CardDescription>Connect your wallet to get started</CardDescription>
+            <CardDescription>
+              Connect your wallet to start using Trustworthy Transfers
+            </CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-4">
             {!wallet ? (
-              <Button onClick={connectWallet} disabled={isConnecting} className="w-full">
+              <Button 
+                onClick={connectWallet} 
+                disabled={isConnecting}
+                className="w-full"
+              >
                 {isConnecting ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -240,170 +274,97 @@ export default function TrustworthyTransfersApp() {
                 )}
               </Button>
             ) : (
-              <div className="space-y-4">
+              <div className="space-y-3">
                 <div className="flex items-center justify-between p-3 bg-green-50 rounded-lg border border-green-200">
                   <div className="flex items-center gap-2">
-                    <CheckCircle className="h-5 w-5 text-green-600" />
-                    <span className="text-sm font-medium text-green-800">Connected</span>
+                    <CheckCircle className="h-4 w-4 text-green-600" />
+                    <span className="text-green-800 font-medium">Connected</span>
                   </div>
-                  <Button variant="outline" size="sm" onClick={disconnectWallet}>
+                  <Button 
+                    onClick={disconnectWallet}
+                    variant="outline"
+                    size="sm"
+                  >
                     Disconnect
                   </Button>
                 </div>
                 <div className="text-sm text-gray-600">
-                  <p><strong>Address:</strong> {wallet.address}</p>
+                  <strong>Address:</strong> {wallet.address}
                 </div>
               </div>
             )}
           </CardContent>
         </Card>
 
-        {/* Transaction Form */}
+        {/* Transfer Request Form */}
         {wallet && (
           <Card>
             <CardHeader>
-              <CardTitle>
-                {currentStep === 'prepare' && "Step 1: Prepare Attestation Request"}
-                {currentStep === 'submit' && "Step 2: Submit to FDC Network"}
-                {currentStep === 'retrieve' && "Step 3: Retrieve Data and Proof"}
-              </CardTitle>
+              <CardTitle>Transfer Request</CardTitle>
               <CardDescription>
-                {currentStep === 'prepare' && "Enter your Wise API key and transfer ID to prepare the FDC attestation request"}
-                {currentStep === 'submit' && "Submit the prepared request to the FDC network (requires FLR for fees)"}
-                {currentStep === 'retrieve' && "Retrieve the verified data and proof from the network"}
+                Enter the details of the transfer you want to verify
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              {currentStep === 'prepare' && (
-                <>
-                  <div className="space-y-2">
-                    <Label htmlFor="apiKey">Wise API Key</Label>
-                    <Input
-                      id="apiKey"
-                      type="password"
-                      placeholder="Enter your Wise API key"
-                      value={apiKey}
-                      onChange={(e) => setApiKey(e.target.value)}
-                      disabled={isProcessing}
-                    />
-                  </div>
+              <div className="space-y-2">
+                <Label htmlFor="api-key">API Key</Label>
+                <Input
+                  id="api-key"
+                  type="password"
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                  placeholder="Enter your API key"
+                  disabled={isProcessing}
+                />
+              </div>
 
-                  <div className="space-y-2">
-                    <Label htmlFor="transferId">Transfer ID</Label>
-                    <Input
-                      id="transferId"
-                      type="text"
-                      placeholder="Enter transfer ID"
-                      value={transferId}
-                      onChange={(e) => setTransferId(e.target.value)}
-                      disabled={isProcessing}
-                    />
-                  </div>
-                </>
-              )}
+              <div className="space-y-2">
+                <Label htmlFor="transfer-id">Transfer ID</Label>
+                <Input
+                  id="transfer-id"
+                  value={transferId}
+                  onChange={(e) => setTransferId(e.target.value)}
+                  placeholder="Enter transfer ID"
+                  disabled={isProcessing}
+                />
+              </div>
 
-              {currentStep === 'submit' && (
-                <div className="space-y-4">
-                  <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
-                    <p className="text-sm text-blue-800">
-                      ✅ Attestation request prepared successfully!
-                    </p>
-                    <p className="text-sm text-blue-700 mt-2">
-                      Ready to submit to the FDC network. This will require a small fee in FLR.
-                    </p>
-                  </div>
-                  
-                  {abiEncodedRequest && (
-                    <div className="space-y-2">
-                      <Label>Prepared Request</Label>
-                      <div className="p-2 bg-gray-100 rounded text-xs font-mono break-all max-h-20 overflow-y-auto">
-                        {abiEncodedRequest.substring(0, 100)}...
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {currentStep === 'retrieve' && (
-                <div className="space-y-4">
-                  <div className="p-4 bg-green-50 rounded-lg border border-green-200">
-                    <p className="text-sm text-green-800">
-                      ✅ Attestation request submitted successfully!
-                    </p>
-                    <p className="text-sm text-green-700 mt-2">
-                      Your request has been submitted to the FDC network. The next step will be to retrieve the verified data and proof.
-                    </p>
-                  </div>
-                  
-                  {result?.data?.roundId && (
-                    <div className="p-4 bg-gray-50 rounded-lg">
-                      <p className="text-sm text-gray-700">
-                        <strong>Round ID:</strong> {result.data.roundId}
-                      </p>
-                      <p className="text-sm text-gray-700">
-                        <strong>Transaction:</strong> {result.data.txHash}
-                      </p>
-                      <a 
-                        href={`https://coston2-systems-explorer.flare.rocks/voting-epoch/${result.data.roundId}?tab=fdc`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-blue-600 hover:text-blue-800 text-sm underline"
-                      >
-                        View round progress →
-                      </a>
-                    </div>
-                  )}
-                </div>
-              )}
-
-                              <div className="space-y-2">
-                  <Button
-                    onClick={submitTransaction}
-                    disabled={
-                      isProcessing || 
-                      (currentStep === 'prepare' && (!apiKey.trim() || !transferId.trim())) ||
-                      (currentStep === 'retrieve') // Not implemented yet
-                    }
-                    className="w-full"
-                  >
-                    {isProcessing ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        {currentStep === 'prepare' && "Preparing Request..."}
-                        {currentStep === 'submit' && "Submitting to FDC..."}
-                        {currentStep === 'retrieve' && "Retrieving Data..."}
-                      </>
-                    ) : (
-                      <>
-                        {currentStep === 'prepare' && "Prepare Attestation Request"}
-                        {currentStep === 'submit' && "Submit to FDC Network"}
-                        {currentStep === 'retrieve' && "Retrieve Data & Proof (Coming Soon)"}
-                      </>
-                    )}
-                  </Button>
-                  
-                  {(currentStep === 'submit' || currentStep === 'retrieve') && (
-                    <Button
-                      onClick={() => {
-                        setCurrentStep('prepare')
-                        setAbiEncodedRequest(null)
-                        setResult(null)
-                        setError(null)
-                      }}
-                      variant="outline"
-                      className="w-full"
-                    >
-                      Start Over
-                    </Button>
-                  )}
-                </div>
+              <Button 
+                onClick={submitTransaction}
+                disabled={isProcessing || !apiKey || !transferId || !isFDCConfigValid}
+                className="w-full"
+              >
+                {isProcessing ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Processing...
+                  </>
+                ) : (
+                  <>
+                    {currentStep === 'prepare' && 'Prepare Request'}
+                    {currentStep === 'submit' && 'Submit Request'}
+                    {currentStep === 'retrieve' && 'Retrieve Data & Proof'}
+                    {currentStep === 'complete' && 'Complete'}
+                  </>
+                )}
+              </Button>
             </CardContent>
           </Card>
         )}
 
-        {/* Transaction Result */}
+        {/* Error Display */}
+        {error && (
+          <Alert className="border-red-200 bg-red-50">
+            <AlertCircle className="h-4 w-4 text-red-600" />
+            <AlertDescription>
+              <strong>Error:</strong> {error}
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {/* Result Display */}
         {result && (
-          <Card>
+          <Card className={result.success ? "border-green-200" : "border-red-200"}>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 {result.success ? (
@@ -411,16 +372,19 @@ export default function TrustworthyTransfersApp() {
                 ) : (
                   <AlertCircle className="h-5 w-5 text-red-600" />
                 )}
-                FDC Attestation Result
+                {result.success ? "Success" : "Error"}
               </CardTitle>
+              <CardDescription>
+                {result.success ? "Operation completed successfully" : "Operation failed"}
+              </CardDescription>
             </CardHeader>
             <CardContent>
-              {result.success ? (
+              {result.success && result.data && (
                 <div className="space-y-4">
-                  <div className="p-4 bg-green-50 rounded-lg border border-green-200">
-                    <p className="text-sm text-green-800">
-                      {result.data?.stepDescription || "Operation completed successfully!"}
-                    </p>
+                  <div className="p-3 bg-green-50 rounded-lg border border-green-200">
+                    <div className="text-green-800 font-medium">
+                      {result.data.stepDescription}
+                    </div>
                   </div>
 
                   <div className="space-y-2 text-sm">
@@ -451,7 +415,27 @@ export default function TrustworthyTransfersApp() {
                           <strong>Round ID:</strong> {result.data?.roundId}
                         </div>
                         <div>
-                          <strong>Fee Paid:</strong> {result.data?.fee ? `${ethers.formatEther(result.data.fee.toString())} FLR` : 'N/A'}
+                          <strong>Fee Paid:</strong> {result.data?.fee && wallet ? `${wallet.web3.utils.fromWei(result.data.fee.toString(), 'ether')} FLR` : 'N/A'}
+                        </div>
+                      </>
+                    )}
+                    
+                    {result.step === 'completed' && result.data?.proof && (
+                      <>
+                        <div>
+                          <strong>Round ID:</strong> {result.data?.roundId}
+                        </div>
+                        <div>
+                          <strong>Proof Retrieved:</strong> ✅
+                        </div>
+                        <div>
+                          <strong>Response Hex:</strong>
+                          <pre className="font-mono text-xs mt-1 p-2 bg-gray-100 rounded overflow-x-auto max-h-32">
+                            {result.data.proof.response_hex?.substring(0, 100)}...
+                          </pre>
+                        </div>
+                        <div>
+                          <strong>Attestation Type:</strong> {result.data.proof.attestation_type}
                         </div>
                       </>
                     )}
@@ -466,62 +450,73 @@ export default function TrustworthyTransfersApp() {
                     )}
                   </div>
                 </div>
-              ) : (
-                <div className="p-4 bg-red-50 rounded-lg border border-red-200">
-                  <p className="text-sm text-red-800">{result.error || "Attestation request failed"}</p>
+              )}
+              
+              {!result.success && (
+                <div className="p-3 bg-red-50 rounded-lg border border-red-200">
+                  <div className="text-red-800">
+                    {result.error}
+                  </div>
                 </div>
               )}
             </CardContent>
           </Card>
         )}
 
-        {/* Error Display */}
-        {error && (
-          <Alert variant="destructive">
-            <AlertCircle className="h-4 w-4" />
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        )}
-
-        {/* FDC Process Info */}
+        {/* Progress Steps */}
         <Card>
           <CardHeader>
-            <CardTitle>FDC Process Steps</CardTitle>
+            <CardTitle>Process Flow</CardTitle>
+            <CardDescription>
+              Follow these steps to complete your transfer verification
+            </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="space-y-2 text-sm">
+            <div className="space-y-3">
               <div className="flex items-center gap-2">
                 <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-semibold ${
                   currentStep === 'prepare' ? 'bg-blue-100 text-blue-600' : 
-                  (currentStep === 'submit' || currentStep === 'retrieve') ? 'bg-green-100 text-green-600' : 'bg-gray-100 text-gray-600'
+                  ['submit', 'retrieve', 'complete'].includes(currentStep) ? 'bg-green-100 text-green-600' : 
+                  'bg-gray-100 text-gray-600'
                 }`}>1</span>
                 <span>
-                  {(currentStep === 'submit' || currentStep === 'retrieve') ? '✅' : currentStep === 'prepare' ? '🔄' : '⏳'} 
+                  {currentStep === 'prepare' ? '🔄' : 
+                   ['submit', 'retrieve', 'complete'].includes(currentStep) ? '✅' : '⏳'} 
                   Prepare attestation request
                 </span>
               </div>
               <div className="flex items-center gap-2">
                 <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-semibold ${
                   currentStep === 'submit' ? 'bg-blue-100 text-blue-600' : 
-                  currentStep === 'retrieve' ? 'bg-green-100 text-green-600' : 'bg-gray-100 text-gray-600'
+                  ['retrieve', 'complete'].includes(currentStep) ? 'bg-green-100 text-green-600' : 
+                  'bg-gray-100 text-gray-600'
                 }`}>2</span>
                 <span>
-                  {currentStep === 'retrieve' ? '✅' : currentStep === 'submit' ? '🔄' : '⏳'} 
+                  {currentStep === 'submit' ? '🔄' : 
+                   ['retrieve', 'complete'].includes(currentStep) ? '✅' : '⏳'} 
                   Submit attestation request
                 </span>
               </div>
               <div className="flex items-center gap-2">
                 <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-semibold ${
-                  currentStep === 'retrieve' ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-gray-600'
+                  currentStep === 'retrieve' ? 'bg-blue-100 text-blue-600' : 
+                  currentStep === 'complete' ? 'bg-green-100 text-green-600' : 
+                  'bg-gray-100 text-gray-600'
                 }`}>3</span>
                 <span>
-                  {currentStep === 'retrieve' ? '🔄' : '⏳'} 
+                  {currentStep === 'retrieve' ? '🔄' : 
+                   currentStep === 'complete' ? '✅' : '⏳'} 
                   Retrieve data and proof
                 </span>
               </div>
               <div className="flex items-center gap-2">
-                <span className="w-6 h-6 bg-gray-100 text-gray-600 rounded-full flex items-center justify-center text-xs font-semibold">4</span>
-                <span>⏳ Interact with smart contract</span>
+                <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-semibold ${
+                  currentStep === 'complete' ? 'bg-green-100 text-green-600' : 'bg-gray-100 text-gray-600'
+                }`}>4</span>
+                <span>
+                  {currentStep === 'complete' ? '✅' : '⏳'} 
+                  Process completed
+                </span>
               </div>
             </div>
           </CardContent>

@@ -1,4 +1,4 @@
-import { ethers } from "ethers"
+import Web3 from "web3"
 
 export const FLARE_NETWORKS = {
   flare: {
@@ -29,11 +29,8 @@ export const FLARE_NETWORKS = {
   },
 } as const
 
-export function createFlareProvider(rpcUrl: string, chainId: number) {
-  return new ethers.JsonRpcProvider(rpcUrl, {
-    chainId,
-    name: chainId === 14 ? "flare" : "coston2",
-  })
+export function createFlareProvider(rpcUrl: string) {
+  return new Web3(rpcUrl)
 }
 
 export function getNetworkConfig(chainId: number) {
