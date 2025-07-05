@@ -59,7 +59,6 @@ async function prepareWiseAttestationRequest(
   verifierUrl: string,
   verifierApiKey: string,
 ): Promise<any> {
-  // Wise API configuration
   const apiUrl = `https://api.transferwise.com/v1/transfers/${transferId}`;
   const httpMethod = "GET";
   const headers = JSON.stringify({
