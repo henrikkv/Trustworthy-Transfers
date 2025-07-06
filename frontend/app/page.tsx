@@ -10,7 +10,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Loader2, Wallet, CheckCircle, AlertCircle } from "lucide-react"
 import { prepareWiseAttestationRequest } from "@/lib/fdc-utils"
 import { submitWiseAttestationRequest } from "@/lib/fdc-contracts"
-import { retrieveWiseAttestationData } from "@/lib/fdc-data-retrieval"
+import { retrieveWiseAttestationData, interactWithWiseContract } from "@/lib/fdc-data-retrieval"
 import { FDC_CONFIG, validateFDCConfig } from "@/lib/config"
 
 interface TransactionRequest {
@@ -23,7 +23,7 @@ interface TransactionResult {
   txHash?: string
   error?: string
   data?: any
-  step?: 'prepared' | 'submitted' | 'retrieving' | 'completed'
+  step?: 'prepared' | 'submitted' | 'retrieving' | 'completed' | 'interacted'
 }
 
 export default function TrustworthyTransfersApp() {
@@ -37,9 +37,10 @@ export default function TrustworthyTransfersApp() {
   const [isProcessing, setIsProcessing] = useState(false)
   const [result, setResult] = useState<TransactionResult | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [currentStep, setCurrentStep] = useState<'prepare' | 'submit' | 'retrieve' | 'complete'>('prepare')
+  const [currentStep, setCurrentStep] = useState<'prepare' | 'submit' | 'retrieve' | 'interact' | 'complete'>('prepare')
   const [abiEncodedRequest, setAbiEncodedRequest] = useState<string | null>(null)
   const [roundId, setRoundId] = useState<number | null>(null)
+  const [proofData, setProofData] = useState<any>(null)
 
   const { isValid: isFDCConfigValid, missingVars } = validateFDCConfig()
 
@@ -79,6 +80,7 @@ export default function TrustworthyTransfersApp() {
     setCurrentStep('prepare')
     setAbiEncodedRequest(null)
     setRoundId(null)
+    setProofData(null)
   }
 
   const submitTransaction = async () => {
@@ -189,7 +191,8 @@ export default function TrustworthyTransfersApp() {
 
         console.log("Data and proof retrieved successfully:", proofData)
         
-        setCurrentStep('complete')
+        setProofData(proofData)
+        setCurrentStep('interact')
         
         setResult({
           success: true,
@@ -201,6 +204,48 @@ export default function TrustworthyTransfersApp() {
             roundId,
             proof: proofData,
             stepDescription: "Data and proof retrieved successfully"
+          }
+        })
+
+        console.log("=== Ready for Step 4: Interact with contract ===")
+        
+      } else if (currentStep === 'interact') {
+        // Step 4: Interact with contract using the proof
+        if (!proofData) {
+          throw new Error("No proof data available for contract interaction")
+        }
+
+        // Check if contract address is configured
+        if (!FDC_CONFIG.wiseTransferListAddress) {
+          throw new Error("Contract address not configured. Please deploy the WiseTransferList contract first and set NEXT_PUBLIC_WISE_TRANSFER_LIST_ADDRESS in your .env file.")
+        }
+
+        console.log("=== Step 4: Interacting with contract ===")
+        console.log("Contract address:", FDC_CONFIG.wiseTransferListAddress)
+        
+        const contractResult = await interactWithWiseContract(
+          FDC_CONFIG.wiseTransferListAddress,
+          proofData,
+          wallet.web3,
+          wallet.address
+        )
+
+        console.log("Contract interaction successful:", contractResult)
+        
+        setCurrentStep('complete')
+        
+        setResult({
+          success: true,
+          step: 'interacted',
+          txHash: contractResult.transactionHash,
+          data: {
+            transferId,
+            timestamp: new Date().toISOString(),
+            abiEncodedRequest,
+            roundId,
+            proof: proofData,
+            contractResult: contractResult,
+            stepDescription: "Contract interaction completed successfully"
           }
         })
 
@@ -239,6 +284,18 @@ export default function TrustworthyTransfersApp() {
               <strong>Configuration Issue:</strong> Missing environment variables: {missingVars.join(', ')}
               <br />
               Please set these in your .env.local file for the application to work properly.
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {/* Contract Address Warning */}
+        {!FDC_CONFIG.wiseTransferListAddress && (
+          <Alert className="border-blue-200 bg-blue-50">
+            <AlertCircle className="h-4 w-4 text-blue-600" />
+            <AlertDescription>
+              <strong>Contract Not Deployed:</strong> The WiseTransferList contract address is not configured.
+              <br />
+              You can complete the first 3 steps (prepare, submit, retrieve), but you'll need to deploy the contract and set <code>NEXT_PUBLIC_WISE_TRANSFER_LIST_ADDRESS</code> to complete the final step.
             </AlertDescription>
           </Alert>
         )}
@@ -331,7 +388,7 @@ export default function TrustworthyTransfersApp() {
 
               <Button 
                 onClick={submitTransaction}
-                disabled={isProcessing || !apiKey || !transferId || !isFDCConfigValid}
+                disabled={isProcessing || !apiKey || !transferId || !isFDCConfigValid || (currentStep === 'interact' && !FDC_CONFIG.wiseTransferListAddress)}
                 className="w-full"
               >
                 {isProcessing ? (
@@ -344,6 +401,7 @@ export default function TrustworthyTransfersApp() {
                     {currentStep === 'prepare' && 'Prepare Request'}
                     {currentStep === 'submit' && 'Submit Request'}
                     {currentStep === 'retrieve' && 'Retrieve Data & Proof'}
+                    {currentStep === 'interact' && 'Interact with Contract'}
                     {currentStep === 'complete' && 'Complete'}
                   </>
                 )}
@@ -437,6 +495,39 @@ export default function TrustworthyTransfersApp() {
                         <div>
                           <strong>Attestation Type:</strong> {result.data.proof.attestation_type}
                         </div>
+                      </>
+                    )}
+                    
+                    {result.step === 'interacted' && result.data?.contractResult && (
+                      <>
+                        <div>
+                          <strong>Contract Interaction:</strong> ✅
+                        </div>
+                        <div>
+                          <strong>Transaction Hash:</strong>
+                          <a 
+                            href={`https://coston2-explorer.flare.network/tx/${result.data.contractResult.transactionHash}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-blue-600 hover:text-blue-800 underline ml-1"
+                          >
+                            {result.data.contractResult.transactionHash}
+                          </a>
+                        </div>
+                        <div>
+                          <strong>Block Number:</strong> {result.data.contractResult.blockNumber}
+                        </div>
+                        <div>
+                          <strong>Transfers Retrieved:</strong> {result.data.contractResult.transfers?.length || 0} transfers
+                        </div>
+                        {result.data.contractResult.transfers && result.data.contractResult.transfers.length > 0 && (
+                          <div>
+                            <strong>Transfer Data:</strong>
+                            <pre className="font-mono text-xs mt-1 p-2 bg-gray-100 rounded overflow-x-auto max-h-32">
+                              {JSON.stringify(result.data.contractResult.transfers[0], null, 2)}
+                            </pre>
+                          </div>
+                        )}
                       </>
                     )}
                     

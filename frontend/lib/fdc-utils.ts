@@ -53,6 +53,8 @@ async function prepareAttestationRequestBase(
 const attestationTypeBase = "Web2Json";
 const sourceIdBase = "PublicWeb2";
 
+const abiSignature = `{"components": [{"internalType": "uint256", "name": "id", "type": "uint256"},{"internalType": "uint256", "name": "targetAccount", "type": "uint256"},{"internalType": "string", "name": "status", "type": "string"},{"internalType": "address", "name": "userMessage", "type": "address"},{"internalType": "uint256", "name": "targetValue", "type": "uint256"},{"internalType": "string", "name": "targetCurrency", "type": "string"}],"name": "task","type": "tuple"}`;
+
 async function prepareWiseAttestationRequest(
   transferId: string,
   wiseApiKey: string,
@@ -70,8 +72,6 @@ async function prepareWiseAttestationRequest(
   
   const postProcessJq = `{id: .id, targetAccount: .targetAccount, status: .status, userMessage: .reference, targetValue: (.targetValue * 100 | floor), targetCurrency: .targetCurrency}`;
   
-  const abiSignature = `{"components": [{"internalType": "uint256", "name": "id", "type": "uint256"},{"internalType": "uint256", "name": "targetAccount", "type": "uint256"},{"internalType": "string", "name": "status", "type": "string"},{"internalType": "address", "name": "userMessage", "type": "address"},{"internalType": "uint256", "name": "targetValue", "type": "uint256"},{"internalType": "string", "name": "targetCurrency", "type": "string"}],"name": "task","type": "tuple"}`;
-
   const requestBody = {
     url: apiUrl,
     httpMethod: httpMethod,

@@ -6,6 +6,9 @@ export const FDC_CONFIG = {
   daLayerUrl: process.env.NEXT_PUBLIC_COSTON2_DA_LAYER_URL || "",
   
   xApiKey: process.env.NEXT_PUBLIC_X_API_KEY || "",
+  
+  // Contract address - set this after deployment
+  wiseTransferListAddress: process.env.NEXT_PUBLIC_WISE_TRANSFER_LIST_ADDRESS || "",
 }
 
 // Validation function to check if required environment variables are set
